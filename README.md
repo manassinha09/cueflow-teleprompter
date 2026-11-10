@@ -1,4 +1,4 @@
-# CueFlow
+# CueFlow - Teleprompter
 
 I started CueFlow because I needed a free, open-source teleprompter with no ads to record YouTube videos in 4K. I wanted the script to scroll as I spoke so I could focus on the take. The goal is to give creators as much control as their phone supports, so they can get more out of the camera they already have.
 
