@@ -74,6 +74,8 @@ Release packaging fails when signing is not configured. Verification checks the 
 
 The 0.1.0 release disables partial Kotlin/AndroidX optimization because it caused a startup `IllegalAccessError` in `ProcessLifecycleInitializer`. The APK is still signed and non-debuggable, and native speech libraries use their release build configuration. Run the release smoke test before enabling code optimization again.
 
+CI restores Gradle dependencies, wrapper distributions, transformed libraries, and task outputs with `setup-gradle` and `--build-cache`. Speech dependency downloads have a separate cache keyed to their checksum-pinned setup script, which revalidates every restored file. Tags build only the release APK while running unit tests and release lint; branch/PR builds produce the debug APK. New branch runs cancel older runs for the same branch, while release runs finish without cancellation. Release signing configuration and keystores are excluded from caching. APK verification uses build tools 36.0.0 explicitly, matching the tools installed by the workflow. Each run uploads Gradle timing, lint, and unit-test reports for checking build performance and failures.
+
 ## Device testing
 
 ### Automated checks

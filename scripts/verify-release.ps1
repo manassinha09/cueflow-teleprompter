@@ -1,21 +1,21 @@
 param(
     [Parameter(Mandatory = $true)][string]$ApkPath,
-    [string]$SdkRoot = $env:ANDROID_HOME
+    [string]$SdkRoot = $env:ANDROID_HOME,
+    [string]$BuildToolsVersion = '36.0.0'
 )
 
 $ErrorActionPreference = 'Stop'
 $cueRoot = Split-Path -Parent $PSScriptRoot
 $cueVersion = ConvertFrom-StringData (Get-Content -Raw (Join-Path $cueRoot 'version.properties'))
 if (-not $SdkRoot) { throw 'Pass -SdkRoot or set ANDROID_HOME.' }
-$cueTools = Get-ChildItem (Join-Path $SdkRoot 'build-tools') -Directory |
-    Where-Object { $_.Name -match '^\d+\.\d+\.\d+$' } |
-    Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
-if (-not $cueTools) { throw 'Android build tools were not found.' }
+$cueTools = Get-Item -LiteralPath (Join-Path $SdkRoot "build-tools/$BuildToolsVersion")
 $cueApk = (Resolve-Path -LiteralPath $ApkPath).Path
 
 $cueSignature = & (Join-Path $cueTools.FullName 'apksigner.bat') verify --verbose --print-certs $cueApk
 if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
-$cueCertificate = ($cueSignature | Select-String '^Signer #1 certificate SHA-256 digest: (.+)$').Matches.Groups[1].Value.Trim()
+$cueCertificateMatch = [regex]::Match(($cueSignature -join "`n"), 'Signer #1 certificate SHA-256 digest: ([a-fA-F0-9]{64})')
+if (-not $cueCertificateMatch.Success) { throw 'Could not read the APK signing-certificate SHA-256 digest.' }
+$cueCertificate = $cueCertificateMatch.Groups[1].Value
 $cueExpectedCertificate = (Get-Content -Raw (Join-Path $cueRoot 'release-signing-certificate.sha256')).Trim()
 if ($cueCertificate -ne $cueExpectedCertificate) { throw 'APK is not signed with the official CueFlow release certificate.' }
 
