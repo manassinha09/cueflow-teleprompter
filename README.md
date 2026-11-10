@@ -9,20 +9,26 @@ CueFlow combines an offline English teleprompter with a built-in Android camera.
 | Channel | Availability |
 | --- | --- |
 | Google Play | The store link will appear here when CueFlow is published. |
-| [GitHub Releases](https://github.com/manassinha09/cueflow-teleprompter/releases) | APK builds will appear here when they’re published. |
-| [GitHub Actions](https://github.com/manassinha09/cueflow-teleprompter/actions/workflows/build-apk.yml) | Download `cueflow-debug-apk` from the **Artifacts** section of a successful run. |
+| [GitHub Releases](https://github.com/manassinha09/cueflow-teleprompter/releases/latest) | Official signed [0.1.0 APK](https://github.com/manassinha09/cueflow-teleprompter/releases/download/v0.1.0/cueflow-0.1.0.apk) and [SHA-256 checksum](https://github.com/manassinha09/cueflow-teleprompter/releases/download/v0.1.0/cueflow-0.1.0.apk.sha256). |
+| [GitHub Actions](https://github.com/manassinha09/cueflow-teleprompter/actions/workflows/build-apk.yml) | Branch and PR builds provide `cueflow-debug-apk` for development. Matching version tags build, verify, and publish official signed releases. |
+
+Version **0.1.0** is the first official release (Android version code **2**). Older debug/preview builds use a different signing certificate and cannot be updated in place. Save any needed scripts/settings before removing a preview installation. Future official releases will use the same release key and support normal updates.
 
 ## What CueFlow can do
 
 - **Follow your script as you speak.** The prompter highlights the latest matched word, pauses when you pause, and handles repeated or skipped lines. Buttons and voice commands let you move two lines at a time.
-- **Record at the quality your phone supports.** Choose from 4K (3840 × 2160), 2K (2560 × 1440), 1080p, or 720p at 24, 30, or 60 fps, depending on the selected camera and available video encoder.
+- **Record at the quality your phone supports.** Choose from 4K (3840 × 2160), 2K (2560 × 1440), 1080p, or 720p, depending on the selected camera and available video encoder. 4K is capped at 30 fps; lower resolutions support up to 60 fps. Advertised 24 fps presets are also available.
 - **Frame your shot in portrait or landscape.** The full video frame stays visible behind the script and controls. Videos use H.264 or HEVC with AAC audio and are saved to `Movies/CueFlow`.
 
 ## Supported devices
 
 CueFlow supports **Android 10 (API 29) and later** on devices with a camera and microphone. The APK supports ARM64 (`arm64-v8a`), ARMv7 (`armeabi-v7a`), and x86-64 (`x86_64`).
 
-**Settings → Video quality** lists the combinations the selected camera and an installed encoder can support. CueFlow checks individual lenses where Android exposes them. A label such as **up to 30 fps** indicates a variable frame rate. If a preset fails when a take starts, CueFlow tries a compatible setting and shows the actual quality when it saves. Front-camera 4K recording has been verified on the Pixel 8 Pro.
+**Settings → Video quality** lists the combinations the selected camera and an installed encoder can support, and identifies whether the front or rear camera is selected. Discovery uses standard camera metadata, recording profiles, exposed physical lenses, and available vendor metadata without a phone-model allowlist. When metadata omits a preset, CueFlow tests the camera and hardware encoder together and checks the actual dimensions and delivered frame rate before adding it. Fixed 60 fps modes are also checked for real 60 fps output. The 4K30 and lower-resolution 60 fps limits apply to every discovery path.
+
+The first camera opening can take a few extra seconds while these silent checks run. No audio or videos are saved during detection. Successful checks are cached for that camera, preview configuration, encoder, and firmware; failed checks can be retried after five minutes. Firmware changes trigger fresh checks. This improves automatic compatibility, but cannot unlock modes a manufacturer prevents third-party apps from using.
+
+A label such as **up to 30 fps** indicates a variable frame rate. If a preset fails when a take starts, CueFlow tries a compatible setting and shows the actual quality when it saves. Front-camera 4K recording has been verified on the Pixel 8 Pro and Motorola Edge 60 Fusion. On the Edge 60 Fusion, 1080p60 is available on the rear camera; the front camera delivers 30 fps.
 
 ## Speech following
 
@@ -53,6 +59,21 @@ From the project root, run these commands in PowerShell:
 
 The setup script downloads and verifies the pinned sherpa-onnx Android library and Zipformer model. CMake fetches Whisper.cpp and verifies its archive checksum. The debug APK is written to `app/build/outputs/apk/debug/`.
 
+### Official releases
+
+`version.properties` is the shared source for the APK version and GitHub release tag. Increase `versionCode` for every official release, set `versionName`, and add the matching file under `release-notes/`. Push an annotated `v<versionName>` tag from the committed source to publish it. CI rejects tags that do not exactly match the app version.
+
+Tagged builds require four GitHub Actions secrets: `CUEFLOW_KEYSTORE_BASE64`, `CUEFLOW_KEYSTORE_PASSWORD`, `CUEFLOW_KEY_ALIAS`, and `CUEFLOW_KEY_PASSWORD`. The keystore is restored only for the release job and removed afterward. For local signed builds, set the same password and alias variables plus `CUEFLOW_KEYSTORE_FILE` pointing to the private keystore, then run:
+
+```powershell
+.\gradlew.bat --no-configuration-cache :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
+.\scripts\verify-release.ps1 -ApkPath app/build/outputs/apk/release/app-release.apk -SdkRoot $env:ANDROID_HOME
+```
+
+Release packaging fails when signing is not configured. Verification checks the APK version, non-debuggable manifest, official signing-certificate fingerprint, supported ABIs, ZIP alignment, and bundled speech model. GitHub Actions publishes the verified universal APK and checksum as a stable release only after these checks pass. The public certificate fingerprint is tracked in `release-signing-certificate.sha256`; private keys and passwords must never be committed. Keep a secure backup of the release keystore and its passwords, and reuse that key for future updates.
+
+The 0.1.0 release disables partial Kotlin/AndroidX optimization because it caused a startup `IllegalAccessError` in `ProcessLifecycleInitializer`. The APK is still signed and non-debuggable, and native speech libraries use their release build configuration. Run the release smoke test before enabling code optimization again.
+
 ## Device testing
 
 ### Automated checks
@@ -64,7 +85,12 @@ Run `.\scripts\generate-speech-fixtures.ps1` with Windows PowerShell to generate
 | `WhisperPerformanceTest` | Pass `benchmarkAudio` to measure Whisper decode performance. Import a Whisper model in CueFlow first. |
 | `SpeechNavigationTest` | Pass `benchmarkAudio` for script following or `commandAudioPath` for voice commands. For commands, `commandLines` accepts `2` or `-2` and defaults to `2`. |
 | `FrontCamera4kTest#recordsFront4k30ThroughTheApp` | Checks a front-camera 4K30 clip on the Pixel 8 Pro (API 35 or later). Pass `benchmarkAudio` and import a Whisper model to benchmark decoding during recording. |
-| `FrontCamera4kTest#recordsAdvertisedMaximumThroughTheApp` | Pass `-e compatCamera front` or `-e compatCamera back` to check consecutive takes at the highest supported resolution. Add `-e compatMaximum fps` to test the highest frame rate instead. |
+| `FrontCamera4kTest#recordsAdvertisedMaximumThroughTheApp` | Pass `-e compatCamera front` or `-e compatCamera back` to check consecutive takes at the highest supported resolution. Add `-e compatMaximum fps` to test the highest frame rate instead, or `-e compatQuality 4K -e compatFps 30` to require an exact preset. Checks menu selection, audio, measured frame rate, decoding, and preview recovery. Close other camera apps first. |
+| `CameraCapabilitiesTest#reportCameraCapabilities` | Logs public camera IDs, physical lenses, stream sizes and durations, frame-rate ranges, recording profiles, Motorola video configurations, and hardware encoder limits. |
+| Generic discovery regression | Add `-e compatGenericDiscovery true` to `recordsAdvertisedMaximumThroughTheApp` to omit vendor metadata and recording profiles, bypass cached results, and discover modes from actual encoded frames. `-e compatAbsentFps 60` also verifies rejection of false 60 fps support. |
+| `FrontCamera4kTest#cameraDiscoverySurvivesActivityRecreation` | Clears only the capability-check cache, recreates the activity during detection, then verifies recovery and another cached restart. |
+| `ReleaseSmokeTest#recordsWithBundledSpeechAndDecodesTheSavedVideo` | Pass `-e releaseSmoke true` on a clean test device with the official APK and a test APK signed with the same certificate. Checks bundled Zipformer, video/audio recording, decoding, and activity recreation against the signed release. |
+| `CameraCapabilitiesTest#probeExplicitRecordingMode` | Opt-in diagnostic: pass `-e probeCamera 1 -e probeQuality 4K -e probeFps 30` to test a mode even if absent from standard metadata. Measures delivered frames; accepting a session or declaring an encoder frame rate alone does not prove support. Does not save a recording. |
 | `PrompterScrollTest` | Checks that the final line reaches the reading edge and that manual rewind is retained in both viewport sizes. |
 
 `SpeechNavigationTest` and `recordsFront4k30ThroughTheApp` use Zipformer by default. To test either with Whisper, import a model first and pass `-e speechEngine whisper`.

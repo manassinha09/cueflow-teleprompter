@@ -23,6 +23,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
+import android.media.CamcorderProfile
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -60,19 +61,20 @@ internal fun CameraCharacteristics.choosePreviewSize(availableSizes: List<Size> 
             abs(it.width.toLong() * 9 - it.height.toLong() * 16) * 100
     }
     val preferred = sizes.firstOrNull() ?: error("This camera has no preview stream.")
-    val has60Fps = get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty().any { it.upper == 60 }
+    val encoderSizes = streams.getOutputSizes(MediaCodec::class.java).orEmpty()
+    val fastEncoder = VideoQuality.entries.filter { it.maxFps >= 60 }.any { quality ->
+        val size = Size(quality.width, quality.height)
+        size in encoderSizes && streams.getOutputMinFrameDuration(MediaCodec::class.java, size).let { it > 0 && fitsFrameRate(it, 60) }
+    }
+    val has60Fps = get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty().any { it.upper >= 60 } || fastEncoder
     if (!has60Fps || fitsFrameRate(streams.getOutputMinFrameDuration(SurfaceTexture::class.java, preferred), 60)) {
         return preferred
     }
-    val encoderSizes = streams.getOutputSizes(MediaCodec::class.java).orEmpty()
-    if (VideoQuality.entries.none { quality ->
-            val size = Size(quality.width, quality.height)
-            size in encoderSizes && fitsFrameRate(streams.getOutputMinFrameDuration(MediaCodec::class.java, size), 60)
-        }) return preferred
-    // A smaller preview can keep an otherwise supported 60 fps recording mode available.
-    return sizes.firstOrNull {
+    // A fast preview must not cap the recording rate; preserve 16:9 where possible.
+    val fastSizes = sizes.filter {
         fitsFrameRate(streams.getOutputMinFrameDuration(SurfaceTexture::class.java, it), 60)
-    } ?: preferred
+    }
+    return fastSizes.firstOrNull { it.width * 9 == it.height * 16 } ?: fastSizes.firstOrNull() ?: preferred
 }
 
 private val recordingFrameRates = listOf(24, 30, 60)
@@ -80,11 +82,21 @@ private val recordingFrameRates = listOf(24, 30, 60)
 // Allow fractional rates such as 59.94 fps when evaluating the sensor limit.
 private fun fitsFrameRate(duration: Long, fps: Int): Boolean = duration <= 1_001_000_000L / fps
 
-internal fun CameraCharacteristics.recordingModes(previewSize: Size): List<VideoMode> {
+internal fun CameraCharacteristics.recordingModes(
+    previewSize: Size,
+    includeVendorModes: Boolean = false,
+    profiles: List<AdditionalVideoConfiguration> = emptyList(),
+    probeMissingModes: Boolean = false,
+): List<VideoMode> {
     val streams = get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return emptyList()
     if (previewSize !in streams.getOutputSizes(SurfaceTexture::class.java).orEmpty()) return emptyList()
     val previewDuration = streams.getOutputMinFrameDuration(SurfaceTexture::class.java, previewSize)
     val encoderSizes = streams.getOutputSizes(MediaCodec::class.java).orEmpty()
+    // Some Motorola cameras omit working 4K outputs from the standard stream map and profiles.
+    // Extra configurations are hints; automatic discovery must test their actual encoded output.
+    val additional = profiles + if (includeVendorModes) parseMotorolaVideoConfigurations(runCatching {
+        get(CameraCharacteristics.Key("com.lenovo.moto.quadra_cfa.video_config", IntArray::class.java))
+    }.getOrNull()) else emptyList()
     val rates = get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty()
         .filter { it.upper in recordingFrameRates }
         .groupBy { it.upper }.values.map { ranges -> ranges.maxBy { it.lower } }
@@ -99,24 +111,66 @@ internal fun CameraCharacteristics.recordingModes(previewSize: Size): List<Video
     }.sortedBy { (_, info) -> !info.isHardwareAccelerated }
     return VideoQuality.entries.flatMap { quality ->
         val size = Size(quality.width, quality.height)
-        if (size !in encoderSizes) return@flatMap emptyList()
-        val duration = maxOf(previewDuration, streams.getOutputMinFrameDuration(MediaCodec::class.java, size))
-        rates.mapNotNull { range ->
-            if (!fitsFrameRate(duration, range.upper)) return@mapNotNull null
+        val listed = size in encoderSizes
+        val extraRates = additional.filter { it.width == size.width && it.height == size.height }.map { it.fps }
+        if (!listed && extraRates.isEmpty() && !probeMissingModes) return@flatMap emptyList()
+        val duration = if (listed) maxOf(previewDuration, streams.getOutputMinFrameDuration(MediaCodec::class.java, size))
+            else previewDuration
+        val candidateRates = rates.toMutableList()
+        if (probeMissingModes) {
+            for (fps in listOf(30, 60).filter(quality::supportsFrameRate)) {
+                val sensorDuration = if (listed) streams.getOutputMinFrameDuration(MediaCodec::class.java, size) else 0L
+                val evidence = fps == 30 || rates.any { it.upper >= fps } || extraRates.any { it >= fps } ||
+                    (sensorDuration > 0 && fitsFrameRate(sensorDuration, fps))
+                if (evidence && candidateRates.none { it.upper == fps }) candidateRates += Range(fps, fps)
+            }
+        }
+        candidateRates.flatMap rates@{ range ->
+            if (!quality.supportsFrameRate(range.upper)) return@rates emptyList()
+            if (probeMissingModes) {
+                // Discover maximum presets, leaving 24 fps to explicitly advertised modes.
+                if (range.upper == 24 || !fitsFrameRate(previewDuration, range.upper)) return@rates emptyList()
+            } else {
+                if (!listed && range.upper !in extraRates) return@rates emptyList()
+                if (!fitsFrameRate(duration, range.upper)) return@rates emptyList()
+            }
             val targetBitrate = if (range.upper == 60) quality.bitrate * 3 / 2 else quality.bitrate
-            encoders.firstNotNullOfOrNull { (mime, info, codec) ->
-                val video = codec.videoCapabilities ?: return@firstNotNullOfOrNull null
+            val supportedEncoders = encoders.mapNotNull { (mime, info, codec) ->
+                // Speculative large streams should not stall startup on a software encoder.
+                // Standard advertised modes still allow software codecs and retain their normal fallback.
+                if (probeMissingModes && !info.isHardwareAccelerated) return@mapNotNull null
+                val video = codec.videoCapabilities ?: return@mapNotNull null
                 if (!video.areSizeAndRateSupported(size.width, size.height, range.upper.toDouble())) {
-                    return@firstNotNullOfOrNull null
+                    return@mapNotNull null
                 }
                 val mode = VideoMode(
                     quality, video.bitrateRange.clamp(targetBitrate), range, mime, info.name,
                 )
                 mode.takeIf { codec.isFormatSupported(it.encoderFormat()) }
             }
+            // Try HEVC as well if an AVC encoder advertises a mode but cannot actually run it.
+            if (probeMissingModes) supportedEncoders.distinctBy { it.mimeType } else supportedEncoders.take(1)
         }
     }
 }
+
+@Suppress("DEPRECATION")
+internal fun cameraRecordingProfiles(cameraId: String): List<AdditionalVideoConfiguration> =
+    listOf(CamcorderProfile.QUALITY_HIGH, CamcorderProfile.QUALITY_2160P, CamcorderProfile.QUALITY_1080P,
+        CamcorderProfile.QUALITY_720P).flatMap { quality ->
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 31) {
+                CamcorderProfile.getAll(cameraId, quality)?.videoProfiles.orEmpty().map {
+                    AdditionalVideoConfiguration(it.width, it.height, it.frameRate)
+                }
+            } else {
+                val id = cameraId.toIntOrNull() ?: return@runCatching emptyList()
+                if (!CamcorderProfile.hasProfile(id, quality)) return@runCatching emptyList()
+                val profile = CamcorderProfile.get(id, quality)
+                listOf(AdditionalVideoConfiguration(profile.videoFrameWidth, profile.videoFrameHeight, profile.videoFrameRate))
+            }
+        }.getOrDefault(emptyList())
+    }.distinct()
 
 @RequiresApi(35)
 private fun CameraManager.supportsRecording(
@@ -145,15 +199,18 @@ private fun recordingProbe(outputs: List<OutputConfiguration>) = SessionConfigur
 )
 
 @Suppress("DEPRECATION")
-private fun CameraDevice.supportsPhysicalRecording(preview: Surface, physicalId: String, mode: VideoMode): Boolean =
+internal fun CameraDevice.supportsRecording(preview: Surface, physicalId: String?, mode: VideoMode): Boolean =
     runCatching {
         // Older Camera2 queries need actual surfaces. PRIVATE with video-encode usage matches the encoder stream.
         ImageReader.newInstance(mode.width, mode.height, ImageFormat.PRIVATE, 1, HardwareBuffer.USAGE_VIDEO_ENCODE)
             .use { output ->
+                val request = createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
+                    set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, mode.fpsRange)
+                }.build()
                 isSessionConfigurationSupported(recordingProbe(listOf(
                     OutputConfiguration(preview).apply { setPhysicalCameraId(physicalId) },
                     OutputConfiguration(output.surface).apply { setPhysicalCameraId(physicalId) },
-                )))
+                )).apply { setSessionParameters(request) })
             }
     }.getOrDefault(false)
 
@@ -207,7 +264,7 @@ internal fun CameraManager.verifiedRecordingModes(
     previewSize: Size,
     baseModes: List<VideoMode>,
     physicalLenses: Map<String, CameraCharacteristics> = physicalRecordingLenses(logical),
-    supportsOnOpenedCamera: ((String, VideoMode) -> Boolean)? = null,
+    supportsOnOpenedCamera: ((String?, VideoMode) -> Boolean)? = null,
 ): List<VideoMode> {
     val queryWithSetup = Build.VERSION.SDK_INT >= 35 &&
         runCatching { isCameraDeviceSetupSupported(cameraId) }.getOrDefault(false)
@@ -287,6 +344,8 @@ internal class CameraPreview(
     private var session: CameraCaptureSession? = null
     private var endingSession: CameraCaptureSession? = null
     private var recorder: TakeRecorder? = null
+    private var modeDiscovery: RecordingModeDiscovery? = null
+    private var skipDiscovery = false
     private var cameraGeneration = 0
     private var sessionGeneration = 0
     private var active = false
@@ -339,6 +398,8 @@ internal class CameraPreview(
 
     fun suspendCamera() {
         active = false
+        modeDiscovery?.cancel()
+        modeDiscovery = null
         clearPreviewRecovery()
         val device = camera
         if (device != null) {
@@ -420,7 +481,7 @@ internal class CameraPreview(
             onLensChanged(actualFront, frontId != null && backId != null)
             val logical = manager.getCameraCharacteristics(id)
             logicalCharacteristics = logical
-            physicalCameraId = if (allowPhysicalCamera && Build.DEVICE == "husky") {
+            physicalCameraId = if (allowPhysicalCamera) {
                 manager.choosePhysicalFrontCamera(id, logical)
             } else null
             val info = physicalCameraId?.let { manager.getCameraCharacteristics(it) } ?: logical
@@ -464,11 +525,11 @@ internal class CameraPreview(
                     } else {
                         pendingSurface = null
                         surfaceSession = acquired
-                        openDevice(id, generation) { device, preview ->
+                        openDevice(id, generation, detectModes = { device, preview ->
                             manager.verifiedRecordingModes(id, logical, preferredPhysical, size, advertised, physicalLenses) { lens, mode ->
-                                device.supportsPhysicalRecording(preview, lens, mode)
+                                device.supportsRecording(preview, lens, mode)
                             }
-                        }
+                        }, discoveryCandidates = manager.recordingDiscoveryCandidates(id, logical, preferredPhysical, size, physicalLenses))
                     }
                 }.onFailure {
                     if (generation == cameraGeneration && !recoverPreview()) {
@@ -491,6 +552,7 @@ internal class CameraPreview(
         id: String,
         generation: Int,
         detectModes: ((CameraDevice, Surface) -> List<VideoMode>)? = null,
+        discoveryCandidates: List<VideoMode> = emptyList(),
     ) {
         manager.openCamera(id, context.mainExecutor, object : CameraDevice.StateCallback() {
                 override fun onOpened(device: CameraDevice) {
@@ -508,6 +570,21 @@ internal class CameraPreview(
                     if (detectModes != null) {
                         modes = detectModes(device, preview)
                         onModes(modes.filterNot(rejectedModes::contains))
+                        if (!skipDiscovery && (discoveryCandidates.isNotEmpty() || modes.any { it.fps == 60 && it.fpsRange.lower == 60 })) {
+                            val discovery = RecordingModeDiscovery(context.applicationContext, device, preview,
+                                checkNotNull(previewSize), physicalCameraId)
+                            modeDiscovery = discovery
+                            discovery.start(modes, discoveryCandidates) { discovered ->
+                                if (active && generation == cameraGeneration && camera === device && modeDiscovery === discovery) {
+                                    modeDiscovery = null
+                                    modes = discovered
+                                    onModes(modes.filterNot(rejectedModes::contains))
+                                    if (modes.isEmpty()) onError("No compatible recording preset for this camera.")
+                                    configure()
+                                }
+                            }
+                            return
+                        }
                         if (modes.isEmpty()) onError("No compatible recording preset for this camera.")
                     }
                     configure()
@@ -523,6 +600,14 @@ internal class CameraPreview(
                     if (closingCamera === device) return
                     if (generation != cameraGeneration) {
                         device.close()
+                        return
+                    }
+                    if (modeDiscovery != null) {
+                        modeDiscovery?.availableModes()?.let { modes = it; onModes(modes.filterNot(rejectedModes::contains)) }
+                        modeDiscovery?.cancel()
+                        modeDiscovery = null
+                        skipDiscovery = true
+                        closeCameraDevice(device)
                         return
                     }
                     if (retryable && recoverPreview(device)) return

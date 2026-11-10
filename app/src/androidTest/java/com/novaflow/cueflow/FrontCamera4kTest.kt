@@ -1,11 +1,13 @@
 package com.novaflow.cueflow
 
 import android.graphics.SurfaceTexture
+import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.content.ContentUris
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.hardware.camera2.CameraCaptureSession
+import android.hardware.HardwareBuffer
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
@@ -13,10 +15,13 @@ import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.params.OutputConfiguration
 import android.hardware.camera2.params.SessionConfiguration
 import android.media.MediaCodec
+import android.media.ImageReader
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
@@ -44,9 +49,29 @@ import org.junit.Assert.assertSame
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class FrontCamera4kTest {
+
+    @Test
+    fun cameraDiscoverySurvivesActivityRecreation() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.getSharedPreferences("camera_mode_checks_v1", 0).edit().clear().commit()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            Thread.sleep(400)
+            scenario.recreate()
+            waitForControl("Start recording", timeoutMillis = 90_000)
+            assertTrue("Discovery should restore a usable camera without Retry.", findControl("Retry") == null)
+            scenario.recreate()
+            waitForControl("Start recording", timeoutMillis = 90_000)
+            clickControl("Settings")
+            clickControl("Video quality")
+            assertTrue("The quality menu must not expose 4K60.", findControl("4K / 60 fps") == null)
+        }
+    }
 
     @Test
     fun recordsAdvertisedMaximumThroughTheApp() {
@@ -62,18 +87,56 @@ class FrontCamera4kTest {
             manager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == facing
         }
         val logical = manager.getCameraCharacteristics(id)
-        val physical = if (Build.DEVICE == "husky") manager.choosePhysicalFrontCamera(id, logical) else null
+        val physical = manager.choosePhysicalFrontCamera(id, logical)
         val info = physical?.let(manager::getCameraCharacteristics) ?: logical
         val lenses = manager.physicalRecordingLenses(logical)
         val preview = if (physical == null) info.chooseRecordingPreview(lenses.values) else info.choosePreviewSize()
-        val available = manager.verifiedRecordingModes(id, logical, physical, preview, info.recordingModes(preview), lenses)
+        // Match the app's opened-camera fallback, including vendor modes on pre-API-35 camera HALs.
+        val opened = CountDownLatch(1)
+        val closed = CountDownLatch(1)
+        val device = AtomicReference<CameraDevice>()
+        manager.openCamera(id, context.mainExecutor, object : CameraDevice.StateCallback() {
+            override fun onOpened(camera: CameraDevice) { device.set(camera); opened.countDown() }
+            override fun onDisconnected(camera: CameraDevice) { camera.close(); opened.countDown() }
+            override fun onError(camera: CameraDevice, error: Int) { camera.close(); opened.countDown() }
+            override fun onClosed(camera: CameraDevice) { closed.countDown() }
+        })
+        val available = try {
+            assertTrue("Camera open timed out.", opened.await(10, TimeUnit.SECONDS))
+            val camera = checkNotNull(device.get()) { "Could not open camera $id." }
+            ImageReader.newInstance(preview.width, preview.height, ImageFormat.PRIVATE, 3, HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE).use {
+                it.setOnImageAvailableListener({ reader -> reader.acquireLatestImage()?.close() }, Handler(Looper.getMainLooper()))
+                val generic = args.getString("compatGenericDiscovery") == "true"
+                val base = if (generic) emptyList() else manager.verifiedRecordingModes(id, logical, physical, preview, info.recordingModes(preview), lenses) { lens, mode ->
+                    camera.supportsRecording(it.surface, lens, mode)
+                }
+                // Deliberately omit vendor configurations and recording profiles to test the generic fallback.
+                val candidates = if (generic) info.recordingModes(preview, probeMissingModes = true)
+                    .map { mode -> mode.copy(physicalCameraId = physical) }
+                else manager.recordingDiscoveryCandidates(id, logical, physical, preview, lenses)
+                RecordingModeDiscovery(context, camera, it.surface, preview, physical, useCache = !generic)
+                    .discover(base, candidates)
+            }
+        } finally {
+            device.get()?.close()
+            closed.await(5, TimeUnit.SECONDS)
+        }
         assertTrue("The test camera must offer at least one recording preset.", available.isNotEmpty())
         val presetSizes = setOf(3840 to 2160, 2560 to 1440, 1920 to 1080, 1280 to 720)
         assertTrue(available.all { (it.width to it.height) in presetSizes && it.fps in setOf(24, 30, 60) })
         assertEquals(available.size, available.map { it.quality to it.fps }.distinct().size)
+        assertTrue("4K must never exceed 30 fps.", available.none { it.quality == VideoQuality.UHD && it.fps > 30 })
+        args.getString("compatAbsentFps")?.toInt()?.let { absent ->
+            assertTrue("A requested rate without actual camera frames must not be offered.", available.none { it.fps == absent })
+        }
+        Log.i("CueFlowProbe", "Discovered ${if (facing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear"} modes: $available")
         val byResolution = compareBy<VideoMode> { it.width.toLong() * it.height }.thenBy { it.fps }
         val byRate = compareBy<VideoMode> { it.fps }.thenBy { it.width.toLong() * it.height }
-        val maximum = available.maxWith(if (args.getString("compatMaximum") == "fps") byRate else byResolution)
+        val requestedQuality = args.getString("compatQuality")
+        val maximum = if (requestedQuality != null) {
+            checkNotNull(available.firstOrNull { it.quality.label == requestedQuality &&
+                it.fps == (args.getString("compatFps")?.toInt() ?: 30) }) { "Requested preset is missing: $requestedQuality. Available: $available" }
+        } else available.maxWith(if (args.getString("compatMaximum") == "fps") byRate else byResolution)
         val preferences = context.getSharedPreferences("prompter", 0)
         val original = preferences.all
         val keys = listOf("front", "video_width", "video_height", "video_fps", "latest_recording_uri",
@@ -88,6 +151,8 @@ class FrontCamera4kTest {
                 waitForControl("Start recording", timeoutMillis = 90_000)
                 clickControl("Settings")
                 waitForControl(maximum.toString(), partial = true)
+                clickControl("Video quality")
+                clickControl(maximum.toString())
                 clickControl("Done")
                 repeat(2) {
                     clickControl("Start recording")
@@ -157,12 +222,24 @@ class FrontCamera4kTest {
             val fps = (frames - 1) * 1_000_000.0 / (last - first)
             assertTrue("Expected a sustained video track, measured $fps fps.", last - first > 2_000_000 && fps > 0)
             assertTrue("Expected at most ${maximum.fps} fps, measured $fps.", fps <= maximum.fps * 1.1)
-            if (maximum.fps == 60 && maximum.fpsRange.lower == 60) {
-                assertTrue("Expected approximately 60 fps, measured $fps.", fps >= 55)
+            if (maximum.fpsRange.lower == maximum.fps) {
+                assertTrue("Expected approximately ${maximum.fps} fps, measured $fps.", fps >= maximum.fps * 0.95)
             }
             Log.i("CueFlowProbe", "$facing camera: $maximum, measured $fps fps")
         } finally {
             extractor.release()
+        }
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(context, recordedUri)
+            val frame = checkNotNull(retriever.getFrameAtTime(1_000_000)) { "The recording must decode." }
+            try {
+                assertEquals(setOf(maximum.width, maximum.height), setOf(frame.width, frame.height))
+            } finally {
+                frame.recycle()
+            }
+        } finally {
+            retriever.release()
         }
     }
 

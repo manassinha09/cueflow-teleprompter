@@ -1,9 +1,9 @@
-name: Build Android APK
+name: Build and release CueFlow
 
 on:
   push:
     branches: [main]
-    tags: ['v*-preview.*']
+    tags: ['v*']
     paths-ignore:
       - '**/*.md'
       - 'design/**'
@@ -17,15 +17,40 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: cueflow-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: windows-2025
-    timeout-minutes: 30
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Validate version and release tag
+        id: version
+        shell: pwsh
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $version = ConvertFrom-StringData (Get-Content -Raw version.properties)
+          if ($version.versionName -notmatch '^\d+\.\d+\.\d+$' -or [int]$version.versionCode -lt 1) {
+            throw 'version.properties must contain a semantic version and a positive version code.'
+          }
+          if ($env:REF_TYPE -eq 'tag' -and $env:REF_NAME -ne "v$($version.versionName)") {
+            throw 'Release tag must exactly match version.properties (for example v0.1.0).'
+          }
+          if ($env:REF_TYPE -eq 'tag' -and -not (Test-Path "release-notes/$($version.versionName).md")) {
+            throw 'Release notes are required for a tagged release.'
+          }
+          "version=$($version.versionName)" >> $env:GITHUB_OUTPUT
 
       - name: Set up Java 25
         uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
@@ -38,16 +63,18 @@ jobs:
         run: |
           $sdkManager = Join-Path $env:ANDROID_HOME 'cmdline-tools/latest/bin/sdkmanager.bat'
           & $sdkManager --install 'platforms;android-37.0' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Prepare speech recognition dependencies
         shell: pwsh
         run: .\scripts\prepare-sherpa.ps1
 
-      - name: Run unit tests and build debug APK
+      - name: Test, lint, and build the development APK
         shell: pwsh
-        run: .\gradlew.bat --no-daemon :app:testDebugUnitTest :app:assembleDebug
+        run: .\gradlew.bat --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 
-      - name: Upload debug APK
+      - name: Upload development APK
+        if: github.ref_type != 'tag'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cueflow-debug-apk
@@ -56,37 +83,91 @@ jobs:
           compression-level: 0
           retention-days: 14
 
-  publish-preview:
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+      - name: Restore release signing key
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          CUEFLOW_KEYSTORE_BASE64: ${{ secrets.CUEFLOW_KEYSTORE_BASE64 }}
+          CUEFLOW_KEYSTORE_PASSWORD: ${{ secrets.CUEFLOW_KEYSTORE_PASSWORD }}
+          CUEFLOW_KEY_ALIAS: ${{ secrets.CUEFLOW_KEY_ALIAS }}
+          CUEFLOW_KEY_PASSWORD: ${{ secrets.CUEFLOW_KEY_PASSWORD }}
+        run: |
+          foreach ($name in 'CUEFLOW_KEYSTORE_BASE64','CUEFLOW_KEYSTORE_PASSWORD','CUEFLOW_KEY_ALIAS','CUEFLOW_KEY_PASSWORD') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Missing release signing secret: $name"
+            }
+          }
+          [IO.File]::WriteAllBytes((Join-Path $env:RUNNER_TEMP 'cueflow-release.p12'), [Convert]::FromBase64String($env:CUEFLOW_KEYSTORE_BASE64))
+
+      - name: Test, lint, and build the signed release APK
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          CUEFLOW_KEYSTORE_FILE: ${{ runner.temp }}/cueflow-release.p12
+          CUEFLOW_KEYSTORE_PASSWORD: ${{ secrets.CUEFLOW_KEYSTORE_PASSWORD }}
+          CUEFLOW_KEY_ALIAS: ${{ secrets.CUEFLOW_KEY_ALIAS }}
+          CUEFLOW_KEY_PASSWORD: ${{ secrets.CUEFLOW_KEY_PASSWORD }}
+        run: .\gradlew.bat --no-daemon --no-configuration-cache :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
+
+      - name: Verify and package the official release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          .\scripts\verify-release.ps1 -ApkPath app/build/outputs/apk/release/app-release.apk
+          $version = ConvertFrom-StringData (Get-Content -Raw version.properties)
+          $apkName = "cueflow-$($version.versionName).apk"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item app/build/outputs/apk/release/app-release.apk "dist/$apkName"
+          $hash = (Get-FileHash "dist/$apkName" -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path (Get-Location) "dist/$apkName.sha256"), "$hash  $apkName`n", [Text.Encoding]::ASCII)
+          Copy-Item "release-notes/$($version.versionName).md" dist/release-notes.md
+
+      - name: Upload verified release artifact
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cueflow-${{ steps.version.outputs.version }}-release
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+
+      - name: Remove temporary signing key
+        if: always() && github.ref_type == 'tag'
+        shell: pwsh
+        run: Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'cueflow-release.p12') -ErrorAction SilentlyContinue
+
+  publish-release:
+    if: github.ref_type == 'tag'
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
-    concurrency:
-      group: publish-preview-${{ github.ref }}
     steps:
-      - name: Download the tested APK
+      - name: Download the verified release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: cueflow-debug-apk
+          name: cueflow-${{ needs.build.outputs.version }}-release
           path: dist
 
-      - name: Publish the prerelease
+      - name: Publish the official release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
           BUILD_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-preview\.[0-9]+$ ]]; then
-            echo "Expected a preview tag such as v1.0.0-preview.1."
-            exit 1
+          set -euo pipefail
+          test "$TAG" = "v$VERSION"
+          (cd dist && sha256sum --check "cueflow-$VERSION.apk.sha256")
+          printf '\nBuilt and verified by [GitHub Actions](%s).\n' "$BUILD_URL" >> dist/release-notes.md
+          if gh release view "$TAG" --json isDraft > release-state.json 2>/dev/null; then
+            test "$(jq -r .isDraft release-state.json)" = true || { echo 'Refusing to replace a published release.'; exit 1; }
+          else
+            gh release create "$TAG" --verify-tag --draft --title "CueFlow $VERSION" --notes-file dist/release-notes.md
           fi
-
-          apk="dist/cueflow-$TAG-debug.apk"
-          mv dist/app-debug.apk "$apk"
-          gh release create "$TAG" "$apk" \
-            --verify-tag --prerelease --title "CueFlow $TAG" \
-            --notes "Debug APK for testing on Android 10 (API 29) and later. Built by [GitHub Actions]($BUILD_URL)."
+          gh release upload "$TAG" "dist/cueflow-$VERSION.apk" "dist/cueflow-$VERSION.apk.sha256" --clobber
+          gh release edit "$TAG" --draft=false --prerelease=false --latest --title "CueFlow $VERSION" --notes-file dist/release-notes.md

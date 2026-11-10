@@ -29,13 +29,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 internal class RecordingModeRejected(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
 
-internal enum class VideoQuality(val label: String, val width: Int, val height: Int, val bitrate: Int) {
-    UHD("4K", 3840, 2160, 42_000_000),
-    QHD("2K", 2560, 1440, 24_000_000),
-    FHD("1080p", 1920, 1080, 14_000_000),
-    HD("720p", 1280, 720, 8_000_000),
-}
-
 internal data class VideoMode(
     val quality: VideoQuality,
     val bitrate: Int,
@@ -44,6 +37,10 @@ internal data class VideoMode(
     val encoderName: String,
     val physicalCameraId: String? = null,
 ) {
+    init {
+        require(quality.supportsFrameRate(fpsRange.upper)) { "Unsupported recording preset: ${quality.label} at ${fpsRange.upper} fps" }
+    }
+
     val width: Int get() = quality.width
     val height: Int get() = quality.height
     val fps: Int get() = fpsRange.upper

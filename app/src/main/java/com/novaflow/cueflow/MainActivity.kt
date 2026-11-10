@@ -802,6 +802,7 @@ class MainActivity : ComponentActivity() {
                 SettingsGroup("Capture") {
                     SettingPickerRow(
                         title = "Video quality",
+                        detail = if (actualFront) "Front camera" else "Rear camera",
                         value = mode?.toString() ?: if (ready) "Unavailable" else "Checking…",
                         enabled = modes.isNotEmpty(),
                     ) { dismiss ->
