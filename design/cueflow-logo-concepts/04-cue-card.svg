@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">CueFlow Cue Card</title>
+  <path fill="#FFAB8D" d="M0 0h128v128H0z"/>
+  <path fill="#151515" d="M55 48h24a8 8 0 0 1 8 8v4l15-8a3 3 0 0 1 4.5 2.7v30.6A3 3 0 0 1 102 88l-15-8v5a8 8 0 0 1-8 8H55a8 8 0 0 1-8-8V56a8 8 0 0 1 8-8Z"/>
+  <path fill="#FFF8E8" stroke="#151515" stroke-width="5" stroke-linejoin="round" d="M26 33h35l13 13v34H26z"/>
+  <path fill="none" stroke="#151515" stroke-width="4" stroke-linejoin="round" d="M61 33v13h13"/>
+  <path fill="#151515" d="M35 46h16v5H35zm0 10h29v5H35zm0 10h21v5H35z"/>
+</svg>

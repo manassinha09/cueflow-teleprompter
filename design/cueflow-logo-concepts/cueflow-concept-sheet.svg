@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="894" viewBox="0 0 1120 894" role="img" aria-labelledby="title">
+  <title id="title">CueFlow app icon concepts</title>
+  <style>
+    text { fill: #151515; font-family: "Segoe UI", Arial, sans-serif; }
+    .eyebrow, .number, .size, .foot { font-family: Consolas, monospace; }
+    .eyebrow { font-size: 15px; font-weight: 700; letter-spacing: 2px; }
+    .headline { font-size: 83px; font-weight: 800; letter-spacing: -4px; }
+    .subtitle { font-size: 25px; }
+    .number { font-size: 16px; font-weight: 700; }
+    .name { font-size: 30px; font-weight: 750; letter-spacing: -.7px; }
+    .description { font-size: 20px; fill: #3A362D; }
+    .size, .foot { font-size: 14px; }
+  </style>
+  <defs>
+    <clipPath id="large-mask"><rect width="164" height="164" rx="17"/></clipPath>
+    <clipPath id="circle-mask"><circle cx="24" cy="24" r="24"/></clipPath>
+    <clipPath id="small-mask"><rect width="32" height="32" rx="8"/></clipPath>
+    <symbol id="01-script-camera" viewBox="0 0 128 128">
+    <path fill="#FFD84A" d="M0 0h128v128H0z"/>
+  <path fill="#151515" d="M33 40h43a9 9 0 0 1 9 9v5l15-9a4 4 0 0 1 6 3.5v31a4 4 0 0 1-6 3.5l-15-9v5a9 9 0 0 1-9 9H33a9 9 0 0 1-9-9V49a9 9 0 0 1 9-9Z"/>
+  <path fill="#FFF8E8" d="M36 50h29v6H36zm0 22h24v6H36z"/>
+  <path fill="#FFD84A" d="M36 61h38v6H36z"/>
+  </symbol>
+    <symbol id="02-live-cue" viewBox="0 0 128 128">
+    <path fill="#C9B8FF" d="M0 0h128v128H0z"/>
+  <path fill="none" stroke="#151515" stroke-width="6" d="M27 49V34h15m44 0h15v15m0 30v15H86m-44 0H27V79"/>
+  <rect x="37" y="58" width="54" height="13" rx="1" fill="#FFF8E8" stroke="#151515" stroke-width="4"/>
+  <path fill="#151515" d="M42 46h28v6H42zm0 32h32v6H42z"/>
+  <circle cx="85" cy="49" r="4.5" fill="#F86151" stroke="#151515" stroke-width="2.5"/>
+  </symbol>
+    <symbol id="03-eye-line" viewBox="0 0 128 128">
+    <path fill="#B9E7CD" d="M0 0h128v128H0z"/>
+  <path fill="#FFF8E8" stroke="#151515" stroke-width="6" d="M25 55c9-13 24-21 39-21s30 8 39 21C94 68 79 76 64 76S34 68 25 55Z"/>
+  <circle cx="64" cy="55" r="15" fill="#151515"/>
+  <path fill="#FFF8E8" d="M65 47h6v6h-6z"/>
+  <path fill="#151515" d="M41 84h46v6H41zm9 11h28v6H50z"/>
+  </symbol>
+    <symbol id="04-cue-card" viewBox="0 0 128 128">
+    <path fill="#FFAB8D" d="M0 0h128v128H0z"/>
+  <path fill="#151515" d="M55 48h24a8 8 0 0 1 8 8v4l15-8a3 3 0 0 1 4.5 2.7v30.6A3 3 0 0 1 102 88l-15-8v5a8 8 0 0 1-8 8H55a8 8 0 0 1-8-8V56a8 8 0 0 1 8-8Z"/>
+  <path fill="#FFF8E8" stroke="#151515" stroke-width="5" stroke-linejoin="round" d="M26 33h35l13 13v34H26z"/>
+  <path fill="none" stroke="#151515" stroke-width="4" stroke-linejoin="round" d="M61 33v13h13"/>
+  <path fill="#151515" d="M35 46h16v5H35zm0 10h29v5H35zm0 10h21v5H35z"/>
+  </symbol>
+  </defs>
+  <path fill="#F2EDDF" d="M0 0h1120v894H0z"/>
+  <text x="48" y="50" class="eyebrow">ANDROID APP ICON STUDY</text>
+  <text x="1072" y="50" text-anchor="end" class="eyebrow">CONCEPTS 01–04</text>
+  <path stroke="#151515" stroke-width="2" d="M48 65h1024"/>
+  <text x="45" y="147" class="headline">CueFlow</text>
+  <text x="49" y="186" class="subtitle">A teleprompter camera in four marks</text>
+  <rect x="863" y="136" width="209" height="40" fill="#151515"/>
+  <rect x="859" y="132" width="209" height="40" fill="#FFD84A" stroke="#151515" stroke-width="2"/>
+  <text x="964" y="158" text-anchor="middle" class="eyebrow">NEOBRUTALISM</text>
+  
+  <g transform="translate(48 222)">
+    <rect x="5" y="5" width="499" height="280" fill="#151515"/>
+    <rect width="499" height="280" fill="#FFFCF4" stroke="#151515" stroke-width="2.5"/>
+    <rect x="25" y="19" width="38" height="26" fill="#FFD84A" stroke="#151515" stroke-width="2"/>
+    <text x="44" y="38" text-anchor="middle" class="number">01</text>
+    <g transform="translate(25 66)">
+      <rect x="6" y="6" width="164" height="164" rx="17" fill="#151515"/>
+      <use href="#01-script-camera" width="164" height="164" clip-path="url(#large-mask)"/>
+      <rect width="164" height="164" rx="17" fill="none" stroke="#151515" stroke-width="3"/>
+    </g>
+    <text x="220" y="98" class="name">Script Camera</text>
+    <text x="220" y="131" class="description">A video camera with the</text>
+    <text x="220" y="155" class="description">current script line in yellow.</text>
+    <g transform="translate(220 185)">
+      <use href="#01-script-camera" width="48" height="48" clip-path="url(#circle-mask)"/>
+      <circle cx="24" cy="24" r="23.5" fill="none" stroke="#151515" stroke-width="1"/>
+    </g>
+    <g transform="translate(291 193)">
+      <use href="#01-script-camera" width="32" height="32" clip-path="url(#small-mask)"/>
+      <rect x=".5" y=".5" width="31" height="31" rx="7.5" fill="none" stroke="#151515" stroke-width="1"/>
+    </g>
+    <text x="244" y="253" text-anchor="middle" class="size">48 px</text>
+    <text x="307" y="253" text-anchor="middle" class="size">32 px</text>
+  </g>
+  <g transform="translate(573 222)">
+    <rect x="5" y="5" width="499" height="280" fill="#151515"/>
+    <rect width="499" height="280" fill="#FFFCF4" stroke="#151515" stroke-width="2.5"/>
+    <rect x="25" y="19" width="38" height="26" fill="#C9B8FF" stroke="#151515" stroke-width="2"/>
+    <text x="44" y="38" text-anchor="middle" class="number">02</text>
+    <g transform="translate(25 66)">
+      <rect x="6" y="6" width="164" height="164" rx="17" fill="#151515"/>
+      <use href="#02-live-cue" width="164" height="164" clip-path="url(#large-mask)"/>
+      <rect width="164" height="164" rx="17" fill="none" stroke="#151515" stroke-width="3"/>
+    </g>
+    <text x="220" y="98" class="name">Live Cue</text>
+    <text x="220" y="131" class="description">A recording viewfinder</text>
+    <text x="220" y="155" class="description">with the active line framed.</text>
+    <g transform="translate(220 185)">
+      <use href="#02-live-cue" width="48" height="48" clip-path="url(#circle-mask)"/>
+      <circle cx="24" cy="24" r="23.5" fill="none" stroke="#151515" stroke-width="1"/>
+    </g>
+    <g transform="translate(291 193)">
+      <use href="#02-live-cue" width="32" height="32" clip-path="url(#small-mask)"/>
+      <rect x=".5" y=".5" width="31" height="31" rx="7.5" fill="none" stroke="#151515" stroke-width="1"/>
+    </g>
+    <text x="244" y="253" text-anchor="middle" class="size">48 px</text>
+    <text x="307" y="253" text-anchor="middle" class="size">32 px</text>
+  </g>
+  <g transform="translate(48 530)">
+    <rect x="5" y="5" width="499" height="280" fill="#151515"/>
+    <rect width="499" height="280" fill="#FFFCF4" stroke="#151515" stroke-width="2.5"/>
+    <rect x="25" y="19" width="38" height="26" fill="#B9E7CD" stroke="#151515" stroke-width="2"/>
+    <text x="44" y="38" text-anchor="middle" class="number">03</text>
+    <g transform="translate(25 66)">
+      <rect x="6" y="6" width="164" height="164" rx="17" fill="#151515"/>
+      <use href="#03-eye-line" width="164" height="164" clip-path="url(#large-mask)"/>
+      <rect width="164" height="164" rx="17" fill="none" stroke="#151515" stroke-width="3"/>
+    </g>
+    <text x="220" y="98" class="name">Eye Line</text>
+    <text x="220" y="131" class="description">A lens inside an eye, with</text>
+    <text x="220" y="155" class="description">the script just below it.</text>
+    <g transform="translate(220 185)">
+      <use href="#03-eye-line" width="48" height="48" clip-path="url(#circle-mask)"/>
+      <circle cx="24" cy="24" r="23.5" fill="none" stroke="#151515" stroke-width="1"/>
+    </g>
+    <g transform="translate(291 193)">
+      <use href="#03-eye-line" width="32" height="32" clip-path="url(#small-mask)"/>
+      <rect x=".5" y=".5" width="31" height="31" rx="7.5" fill="none" stroke="#151515" stroke-width="1"/>
+    </g>
+    <text x="244" y="253" text-anchor="middle" class="size">48 px</text>
+    <text x="307" y="253" text-anchor="middle" class="size">32 px</text>
+  </g>
+  <g transform="translate(573 530)">
+    <rect x="5" y="5" width="499" height="280" fill="#151515"/>
+    <rect width="499" height="280" fill="#FFFCF4" stroke="#151515" stroke-width="2.5"/>
+    <rect x="25" y="19" width="38" height="26" fill="#FFAB8D" stroke="#151515" stroke-width="2"/>
+    <text x="44" y="38" text-anchor="middle" class="number">04</text>
+    <g transform="translate(25 66)">
+      <rect x="6" y="6" width="164" height="164" rx="17" fill="#151515"/>
+      <use href="#04-cue-card" width="164" height="164" clip-path="url(#large-mask)"/>
+      <rect width="164" height="164" rx="17" fill="none" stroke="#151515" stroke-width="3"/>
+    </g>
+    <text x="220" y="98" class="name">Cue Card</text>
+    <text x="220" y="131" class="description">A script page layered over</text>
+    <text x="220" y="155" class="description">a video camera silhouette.</text>
+    <g transform="translate(220 185)">
+      <use href="#04-cue-card" width="48" height="48" clip-path="url(#circle-mask)"/>
+      <circle cx="24" cy="24" r="23.5" fill="none" stroke="#151515" stroke-width="1"/>
+    </g>
+    <g transform="translate(291 193)">
+      <use href="#04-cue-card" width="32" height="32" clip-path="url(#small-mask)"/>
+      <rect x=".5" y=".5" width="31" height="31" rx="7.5" fill="none" stroke="#151515" stroke-width="1"/>
+    </g>
+    <text x="244" y="253" text-anchor="middle" class="size">48 px</text>
+    <text x="307" y="253" text-anchor="middle" class="size">32 px</text>
+  </g>
+  <path stroke="#151515" stroke-width="2" d="M48 843h1024"/>
+  <text x="48" y="869" class="foot">CUEFLOW / LOGO EXPLORATIONS</text>
+  <text x="1072" y="869" text-anchor="end" class="foot">CIRCLE AND ROUNDED-SQUARE LAUNCHER PREVIEWS</text>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">CueFlow Live Cue</title>
+  <path fill="#C9B8FF" d="M0 0h128v128H0z"/>
+  <path fill="none" stroke="#151515" stroke-width="6" d="M27 49V34h15m44 0h15v15m0 30v15H86m-44 0H27V79"/>
+  <rect x="37" y="58" width="54" height="13" rx="1" fill="#FFF8E8" stroke="#151515" stroke-width="4"/>
+  <path fill="#151515" d="M42 46h28v6H42zm0 32h32v6H42z"/>
+  <circle cx="85" cy="49" r="4.5" fill="#F86151" stroke="#151515" stroke-width="2.5"/>
+</svg>

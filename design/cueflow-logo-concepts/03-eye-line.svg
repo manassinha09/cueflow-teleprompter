@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">CueFlow Eye Line</title>
+  <path fill="#B9E7CD" d="M0 0h128v128H0z"/>
+  <path fill="#FFF8E8" stroke="#151515" stroke-width="6" d="M25 55c9-13 24-21 39-21s30 8 39 21C94 68 79 76 64 76S34 68 25 55Z"/>
+  <circle cx="64" cy="55" r="15" fill="#151515"/>
+  <path fill="#FFF8E8" d="M65 47h6v6h-6z"/>
+  <path fill="#151515" d="M41 84h46v6H41zm9 11h28v6H50z"/>
+</svg>

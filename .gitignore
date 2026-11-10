@@ -1,0 +1,40 @@
+# Build caches and generated Android output
+.gradle/
+.kotlin/
+build/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.apks
+*.idsig
+
+# Machine-specific Android Studio and SDK settings
+/.idea/
+*.iml
+local.properties
+
+# Local downloads, speech fixtures, and device captures
+/.cueflow-local/
+captures/
+*.log
+*.hprof
+
+# Local credentials and Android signing keys
+.env
+.env.*
+!.env.example
+!.env.sample
+key.properties
+keystore.properties
+signing.properties
+secrets.properties
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">CueFlow Script Camera</title>
+  <path fill="#FFD84A" d="M0 0h128v128H0z"/>
+  <path fill="#151515" d="M33 40h43a9 9 0 0 1 9 9v5l15-9a4 4 0 0 1 6 3.5v31a4 4 0 0 1-6 3.5l-15-9v5a9 9 0 0 1-9 9H33a9 9 0 0 1-9-9V49a9 9 0 0 1 9-9Z"/>
+  <path fill="#FFF8E8" d="M36 50h29v6H36zm0 22h24v6H36z"/>
+  <path fill="#FFD84A" d="M36 61h38v6H36z"/>
+</svg>

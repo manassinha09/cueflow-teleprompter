@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.CueFlow" parent="Theme.CueFlow.Base">
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_cueflow_round</item>
+    </style>
+</resources>
