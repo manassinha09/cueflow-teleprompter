@@ -10,7 +10,7 @@ CueFlow combines an offline English teleprompter with a built-in Android camera.
 | --- | --- |
 | Google Play | The store link will appear here when CueFlow is published. |
 | [GitHub Releases](https://github.com/manassinha09/cueflow-teleprompter/releases/latest) | Official signed [0.1.0 APK](https://github.com/manassinha09/cueflow-teleprompter/releases/download/v0.1.0/cueflow-0.1.0.apk) and [SHA-256 checksum](https://github.com/manassinha09/cueflow-teleprompter/releases/download/v0.1.0/cueflow-0.1.0.apk.sha256). |
-| [GitHub Actions](https://github.com/manassinha09/cueflow-teleprompter/actions/workflows/build-apk.yml) | Branch and PR builds provide `cueflow-debug-apk` for development. Matching version tags build, verify, and publish official signed releases. |
+| [GitHub Actions](https://github.com/manassinha09/cueflow-teleprompter/actions/workflows/build-apk.yml) | Branch and PR builds provide `cueflow-preview-apk` for development. Matching version tags build, verify, and publish official signed releases. |
 
 Version **0.1.0** is the first official release (Android version code **2**). Older debug/preview builds use a different signing certificate and cannot be updated in place. Save any needed scripts/settings before removing a preview installation. Future official releases will use the same release key and support normal updates.
 

@@ -43,6 +43,9 @@ android {
         }
     }
     buildTypes {
+        debug {
+            applicationIdSuffix = ".preview"
+        }
         release {
             isDebuggable = false
             if (cueHasSigning) signingConfig = signingConfigs.getByName("official")
@@ -70,6 +73,12 @@ android {
         }
     }
     sourceSets["main"].assets.directories.add(rootProject.file(".cueflow-local/sherpa/assets").absolutePath)
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.outputs.single().outputFileName.set("cueflow-preview.apk")
+    }
 }
 
 val requireReleaseSigning = tasks.register("requireReleaseSigning") {

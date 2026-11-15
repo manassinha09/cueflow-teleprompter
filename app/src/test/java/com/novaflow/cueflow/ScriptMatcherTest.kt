@@ -37,6 +37,26 @@ class ScriptMatcherTest {
     }
 
     @Test
+    fun followsACloseLiveWordWhenThePreviousWordsMatch() {
+        val script = "Read these four words carefully before moving on."
+        val matcher = ScriptMatcher(script)
+        assertEquals(script.indexOf(" carefully"), matcher.advance("read these four words"))
+        assertNull(matcher.advance("carefuly"))
+        assertNull(matcher.advance("read these four words carefull"))
+        assertEquals(script.indexOf(" before"), matcher.advance("read these four words carefuly"))
+        assertEquals(script.indexOf(" moving"), matcher.advance("before"))
+    }
+
+    @Test
+    fun aCloseEndingCannotJumpAheadOverUnreadWords() {
+        val script = "First read this opening. Then read these four words carefully."
+        val matcher = ScriptMatcher(script)
+        assertNull(matcher.advance("read these four words carefuly"))
+        assertEquals(0, matcher.position)
+        assertEquals(script.lastIndexOf('.'), matcher.advance("read these four words carefully"))
+    }
+
+    @Test
     fun normalizesNumbersAndContractionsWithoutChangingHighlightOffsets() {
         val script = "We're recording 30 frames. It won't take 42 minutes."
         val matcher = ScriptMatcher(script)

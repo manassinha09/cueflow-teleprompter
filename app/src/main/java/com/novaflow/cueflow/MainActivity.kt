@@ -123,6 +123,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 private val ToolbarActionSize = 56.dp
@@ -1191,22 +1192,41 @@ internal fun Prompter(
             scroll.animateScrollTo(top.roundToInt())
         }
     }
+    val density = LocalDensity.current
+    val lineHeight = (fontSize * 1.26f).sp
+    val textVerticalPadding = 6.dp
+    val viewportHeight = if (landscape) {
+        val textHeight = with(density) {
+            val fiveLines = layout?.takeIf { it.lineCount >= 5 }?.getLineBottom(4) ?: (lineHeight.toPx() * 5)
+            ceil(fiveLines).toDp()
+        }
+        // Round each edge the same way the text container's padding is rounded.
+        val padding = with(density) { textVerticalPadding.roundToPx().toDp() }
+        textHeight + padding * 2
+    } else {
+        260.dp
+    }
     val shape = MaterialTheme.shapes.large
     Column(
         modifier.fillMaxWidth().clip(shape)
             .border(1.dp, StudioColors.outlineVariant.copy(alpha = 0.85f), shape),
     ) {
         BoxWithConstraints(
-            Modifier.fillMaxWidth().height(if (landscape) 132.dp else 260.dp)
+            // Reserve space for the controls when five lines exceed the available height.
+            (if (landscape) Modifier.weight(1f, fill = false) else Modifier)
+                .fillMaxWidth().height(viewportHeight)
                 .background(StudioColors.surfaceContainerLowest.copy(alpha = opacity / 100f)),
         ) {
-            val density = LocalDensity.current
             val lastLineHeight = layout?.let {
                 it.getLineBottom(it.lineCount - 1) - it.getLineTop(it.lineCount - 1)
-            } ?: with(density) { (fontSize * 1.26f).sp.toPx() }
+            } ?: with(density) { lineHeight.toPx() }
             // A larger viewport must still let the final line reach the camera-side reading edge.
-            val tail = (maxHeight - with(density) { lastLineHeight.toDp() } - 12.dp).coerceAtLeast(0.dp)
-            Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 16.dp, vertical = 6.dp)) {
+            val tail = (maxHeight - with(density) { lastLineHeight.toDp() } - textVerticalPadding * 2)
+                .coerceAtLeast(0.dp)
+            Column(
+                Modifier.fillMaxSize().verticalScroll(scroll)
+                    .padding(horizontal = 16.dp, vertical = textVerticalPadding),
+            ) {
                 Text(
                     buildAnnotatedString {
                         append(script)
@@ -1226,7 +1246,7 @@ internal fun Prompter(
                         shadow = Shadow(Color.Black.copy(alpha = 0.85f), Offset(0f, 1f), 3f),
                     ),
                     fontSize = fontSize.sp,
-                    lineHeight = (fontSize * 1.26f).sp,
+                    lineHeight = lineHeight,
                     onTextLayout = { next ->
                         val previous = layout
                         if (spoken == null && previous != null && previous.size.width != next.size.width &&

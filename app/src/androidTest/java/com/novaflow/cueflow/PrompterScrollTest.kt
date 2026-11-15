@@ -3,9 +3,15 @@ package com.novaflow.cueflow
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -20,6 +26,49 @@ import kotlin.math.abs
 /** Uses native instrumentation, avoiding Espresso input injection on newer Android releases. */
 @RunWith(AndroidJUnit4::class)
 class PrompterScrollTest {
+    @Test
+    fun landscapeFitsFiveLinesAtDifferentFontSizes() {
+        val instrument = InstrumentationRegistry.getInstrumentation()
+        val script = AnnotatedString((1..8).joinToString("\n") { "Line $it" })
+        val fontSize = mutableStateOf(26)
+        val scroll = ScrollState(0)
+        val commands = Channel<PrompterScroll>(Channel.UNLIMITED)
+        var measurement: TextLayoutResult? = null
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    CueFlowTheme {
+                        val size = fontSize.value
+                        val layout = rememberTextMeasurer().measure(
+                            script, MaterialTheme.typography.bodyLarge.copy(
+                                fontSize = size.sp, lineHeight = (size * 1.26f).sp,
+                            ),
+                        )
+                        SideEffect { measurement = layout }
+                        Prompter(script, null, size, true, 68, Modifier.width(300.dp),
+                            commands, { _, _ -> }, scroll)
+                    }
+                }
+            }
+            var previousViewport = 0
+            for (size in listOf(26, 32)) {
+                instrument.runOnMainSync { fontSize.value = size }
+                waitUntil {
+                    scroll.viewportSize > previousViewport && measurement?.layoutInput?.style?.fontSize == size.sp
+                }
+                instrument.runOnMainSync {
+                    val layout = checkNotNull(measurement)
+                    previousViewport = scroll.viewportSize
+                    val verticalPadding = with(layout.layoutInput.density) { 6.dp.roundToPx() * 2 }
+                    val visibleHeight = previousViewport - verticalPadding
+                    assertTrue("Five complete lines should fit at ${size}sp.", visibleHeight >= layout.getLineBottom(4))
+                    assertTrue("Six complete lines should not fit at ${size}sp.", visibleHeight < layout.getLineBottom(5))
+                }
+            }
+        }
+        commands.close()
+    }
+
     @Test
     fun reflowPreservesTheManuallySelectedReadingLine() {
         val instrument = InstrumentationRegistry.getInstrumentation()

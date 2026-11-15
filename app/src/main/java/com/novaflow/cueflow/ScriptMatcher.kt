@@ -8,6 +8,7 @@ internal class ScriptMatcher(script: String) {
     var position = 0
         private set
     private var lastHypothesis = emptyList<String>()
+    private val costRows = Array(2) { IntArray(HYPOTHESIS_WORDS + 3) }
 
     fun seekTo(offset: Int) {
         position = words.indexOfFirst { it.end > offset }.let { if (it < 0) words.size else it }
@@ -15,7 +16,7 @@ internal class ScriptMatcher(script: String) {
     }
 
     fun advance(hypothesis: String, finalized: Boolean = false): Int? {
-        val heard = spokenWords(hypothesis).map { it.value }.takeLast(16)
+        val heard = spokenWords(hypothesis).takeLast(HYPOTHESIS_WORDS).map { it.value }
         if (heard.isEmpty() || position >= words.size) return null
         val offset = advanceAligned(heard)
         // A final result can repeat the previous partial transcript verbatim. Recheck
@@ -26,51 +27,93 @@ internal class ScriptMatcher(script: String) {
     private fun advanceAligned(heard: List<String>): Int? {
         if (heard == lastHypothesis) return null
         lastHypothesis = heard
-        val candidates = mutableMapOf<Int, Candidate>()
         val first = (position - 16).coerceAtLeast(0)
         val last = (position + 24).coerceAtMost(words.lastIndex)
-        for (start in first..last) {
-            for (length in 1..heard.size) {
-                val phrase = heard.takeLast(length)
-                val maxSpan = minOf(length + 2, words.size - start)
-                // One or two words may extend the current reading position, but cannot seek ahead.
-                if (length < 3 && start != position) continue
-                var previous = Array(maxSpan + 1) { Alignment(it, 0) }
-                for (i in phrase.indices) {
-                    val current = Array(maxSpan + 1) { Alignment(i + 1, 0) }
-                    for (j in 1..maxSpan) {
-                        val equal = phrase[i] == words[start + j - 1].value
-                        val diagonal = previous[j - 1].let {
-                            Alignment(it.errors + if (equal) 0 else 1, it.matches + if (equal) 1 else 0)
-                        }
-                        current[j] = listOf(diagonal, previous[j].error(), current[j - 1].error())
-                            .minWith(compareBy<Alignment> { it.errors }.thenByDescending { it.matches })
-                    }
-                    previous = current
-                }
-                for (span in maxOf(1, length - 2)..maxSpan) {
-                    val end = start + span
-                    // Live partial hypotheses must match the final word exactly.
-                    if (words[end - 1].value != phrase.last()) continue
-                    val alignment = previous[span]
-                    val shortContinuation = alignment.errors == 0 && start == position &&
-                        (length == 2 || (length == 1 && position > 0))
-                    if (!shortContinuation && (alignment.matches < 3 ||
-                            alignment.errors > minOf(2, alignment.matches / 3))) continue
-                    val score = alignment.matches * 3 - alignment.errors * 4
-                    if (score <= 0) continue
-                    val candidate = Candidate(end, score)
-                    if (score > (candidates[end]?.score ?: -1)) candidates[end] = candidate
-                }
+        var bestEnd = position
+        var bestScore = 0
+        var runnerUp = 0
+        for (end in first + 1..minOf(words.size, last + heard.size + 2)) {
+            val score = if (heard.last() == words[end - 1].value) {
+                scoreExactEnding(heard, end, first, last)
+            } else {
+                scoreCloseEnding(heard, end, first)
+            }
+            if (score > bestScore) {
+                runnerUp = bestScore
+                bestScore = score
+                bestEnd = end
+            } else {
+                runnerUp = maxOf(runnerUp, score)
             }
         }
-        val ranked = candidates.values.sortedByDescending { it.score }
-        val best = ranked.firstOrNull() ?: return null
         // Repeated passages and competing alignments should hold, not jump to another occurrence.
-        if (ranked.drop(1).any { it.score >= best.score - 1 }) return null
-        if (best.end <= position) return null
-        position = best.end
+        if (bestEnd <= position || (runnerUp > 0 && runnerUp >= bestScore - 1)) return null
+        position = bestEnd
         return words[position - 1].end
+    }
+
+    private fun scoreExactEnding(heard: List<String>, end: Int, first: Int, last: Int): Int {
+        val maxSpan = minOf(end - first, heard.size + 2)
+        var previous = costRows[0]
+        var current = costRows[1]
+        for (span in 0..maxSpan) previous[span] = span * EDIT_COST
+        var bestScore = 0
+        // Work backwards from a matching end word. One alignment yields the cost
+        // for every pair of suffix lengths instead of recalculating each phrase.
+        for (length in 1..heard.size) {
+            val token = heard[heard.size - length]
+            current[0] = length * EDIT_COST
+            for (span in 1..maxSpan) {
+                val diagonal = if (token == words[end - span].value) -1 else EDIT_COST
+                current[span] = minOf(
+                    previous[span - 1] + diagonal,
+                    previous[span] + EDIT_COST,
+                    current[span - 1] + EDIT_COST,
+                )
+            }
+            for (span in maxOf(1, length - 2, end - last)..minOf(maxSpan, length + 2)) {
+                val start = end - span
+                if (length < 3 && start != position) continue
+                val cost = current[span]
+                val edits = (cost + EDIT_COST - 1) / EDIT_COST
+                val matches = edits * EDIT_COST - cost
+                val shortContinuation = edits == 0 && start == position &&
+                    (length == 2 || (length == 1 && position > 0))
+                if (shortContinuation || (matches >= 3 && edits <= minOf(2, matches / 3))) {
+                    bestScore = maxOf(bestScore, matches * 3 - edits * 4)
+                }
+            }
+            val next = previous
+            previous = current
+            current = next
+        }
+        return bestScore
+    }
+
+    private fun scoreCloseEnding(heard: List<String>, end: Int, first: Int): Int {
+        val anchorLength = 4
+        if (end <= position || end - 1 - anchorLength > position) return 0
+        val maxAnchor = minOf(heard.lastIndex, end - 1 - first)
+        var matches = 0
+        while (matches < maxAnchor && heard[heard.lastIndex - 1 - matches] == words[end - 2 - matches].value) {
+            matches++
+        }
+        val start = end - 1 - matches
+        if (matches < anchorLength || start > position ||
+            !oneEditApart(words[end - 1].value, heard.last())) return 0
+        return matches * 3 - 4
+    }
+
+    private fun oneEditApart(expected: String, heard: String): Boolean {
+        if (expected.length < 5 || kotlin.math.abs(expected.length - heard.length) > 1 ||
+            !expected.regionMatches(0, heard, 0, 2)) return false
+        var common = 2
+        while (common < minOf(expected.length, heard.length) && expected[common] == heard[common]) common++
+        // A live transcript may still be filling in a word it has only partially decoded.
+        if (common == heard.length && heard.length < expected.length) return false
+        val expectedEnd = common + if (expected.length >= heard.length) 1 else 0
+        val heardEnd = common + if (heard.length >= expected.length) 1 else 0
+        return expected.regionMatches(expectedEnd, heard, heardEnd, expected.length - expectedEnd)
     }
 
     private fun recoverEnding(heard: List<String>): Int? {
@@ -112,9 +155,10 @@ internal class ScriptMatcher(script: String) {
         return previous[columns] <= 2
     }
 
-    private data class Candidate(val end: Int, val score: Int)
-    private data class Alignment(val errors: Int, val matches: Int) {
-        fun error() = copy(errors = errors + 1)
+    private companion object {
+        const val HYPOTHESIS_WORDS = 16
+        // An edit outweighs every possible exact match combined.
+        const val EDIT_COST = HYPOTHESIS_WORDS + 1
     }
 }
 
